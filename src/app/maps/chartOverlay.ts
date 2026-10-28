@@ -1,4 +1,4 @@
-import type maplibregl from "maplibre-gl";
+import type * as maplibregl from "maplibre-gl";
 import { resolveGeoreferenceQuad } from "../../domain/references/georeference";
 import type { MapChartOverlayState } from "../../domain/maps/types";
 import type { ReferenceDocument } from "../../domain/references/types";
