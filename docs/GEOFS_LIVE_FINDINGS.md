@@ -2,16 +2,16 @@
 
 Last updated: 2026-04-04
 
-This note captures findings from live Playwright-driven runs against [GeoFS v3.8](https://www.geo-fs.com/geofs.php?v=3.8) using the local Chrome extension build and the smoke harness at [geofs-live-smoke.mjs](/C:/Users/mike/OneDrive/Desktop/Geo-FS%20ATC/scripts/geofs-live-smoke.mjs).
+This note captures findings from live Playwright-driven runs against [GeoFS v3.8](https://www.geo-fs.com/geofs.php?v=3.8) using the local Chrome extension build and the smoke harness at [geofs-live-smoke.mjs](../scripts/geofs-live-smoke.mjs).
 
 ## Harness and artifacts
 
 - Command: `npm run test:geofs-live`
 - Artifacts:
-  - [summary.json](/C:/Users/mike/OneDrive/Desktop/Geo-FS%20ATC/output/playwright/geofs-live-smoke/summary.json)
-  - [update-samples.json](/C:/Users/mike/OneDrive/Desktop/Geo-FS%20ATC/output/playwright/geofs-live-smoke/update-samples.json)
-  - [map-samples.json](/C:/Users/mike/OneDrive/Desktop/Geo-FS%20ATC/output/playwright/geofs-live-smoke/map-samples.json)
-  - [workspace-after-background.png](/C:/Users/mike/OneDrive/Desktop/Geo-FS%20ATC/output/playwright/geofs-live-smoke/workspace-after-background.png)
+  - summary.json: `output/playwright/geofs-live-smoke/summary.json`
+  - update-samples.json: `output/playwright/geofs-live-smoke/update-samples.json`
+  - map-samples.json: `output/playwright/geofs-live-smoke/map-samples.json`
+  - workspace-after-background.png: `output/playwright/geofs-live-smoke/workspace-after-background.png`
 
 The harness now clears its Chromium profile on each run so the extension does not keep loading stale bundle hashes between builds.
 
