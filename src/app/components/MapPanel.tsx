@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import maplibregl, { Marker } from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
+import { Marker } from "maplibre-gl";
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { createDefaultChartOverlayState } from "../../domain/maps/chartOverlay";
 import { getGeoreferenceSummary } from "../../domain/references/georeference";
 import { detectTrafficConflicts } from "../../domain/aircraft/conflicts";
@@ -25,6 +27,8 @@ interface MapPanelProps {
 }
 
 const STYLE_URL = "https://demotiles.maplibre.org/style.json";
+
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 const defaultRoleForPanel = (kind: MapPanelState["kind"]): ReferenceViewRole =>
   kind === "surface" ? "ground_reference" : kind === "runway" ? "weather_reference" : "airspace_reference";

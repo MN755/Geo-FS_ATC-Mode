@@ -56,7 +56,7 @@ export const usePdfDocument = (document: ReferenceDocument | null) => {
         const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
         pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
 
-        const loadingTask = pdfjs.getDocument(document.sourcePath);
+        const loadingTask = pdfjs.getDocument({ url: document.sourcePath });
         const pdf = await loadingTask.promise;
         if (cancelled) {
           return;

@@ -64,7 +64,7 @@ scripts/
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 22.13+ (required by the patched PDF.js toolchain)
 - Google Chrome or Chromium with extension developer mode available
 - Windows, macOS, or Linux desktop environment capable of running a Chrome extension
 
