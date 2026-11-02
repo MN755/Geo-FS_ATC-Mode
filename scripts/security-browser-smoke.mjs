@@ -9,6 +9,45 @@ const dist = path.resolve('dist');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const expect = baseExpect.configure({ timeout: 20_000 });
 
+const bootState = page => page.evaluate(() => ({
+  ready: document.readyState, deferredLoaded: !!window.eventdone?.deferredload,
+  aircraftReady: !!window.geofs?.aircraft?.instance,
+  startVisible: !!document.querySelector('.geofs-startModal .geofs-fly-button')?.offsetParent,
+  deferredScripts: document.querySelectorAll('script[data-deferredsrc]').length
+}));
+
+function recordScriptErrors(page, errors) {
+  page.on('pageerror', error => {
+    if (errors.length >= 5) return;
+    // Never log exception messages or runtime values. Only static source locations.
+    const locations = [...(error.stack || '').matchAll(
+      /https:\/\/www\.geo-fs\.com\/(js\/[\w/.-]+)(?:\?[^\s:)]*)?:(\d+):(\d+)/g
+    )].slice(0, 3).map(match => ({ path: match[1], line: +match[2], column: +match[3] }));
+    errors.push({ type: error.name, locations });
+  });
+}
+
+async function diagnosePlainSession() {
+  const browser = await chromium.launch({ channel: 'chromium', headless: false,
+    args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1200 } });
+    const errors = [];
+    recordScriptErrors(page, errors);
+    await page.goto('https://www.geo-fs.com/geofs.php?v=3.8',
+      { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await sleep(30_000);
+    const before = await bootState(page);
+    if (before.startVisible) {
+      await page.locator('.geofs-startModal .geofs-fly-button').click();
+      await sleep(15_000);
+    }
+    console.log('Plain browser diagnostic only:', JSON.stringify({
+      before, after: await bootState(page), errors
+    }));
+  } finally { await browser.close(); }
+}
+
 async function withExtension(run) {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'geofs-security-'));
   const context = await chromium.launchPersistentContext(profile, {
@@ -102,37 +141,38 @@ await withExtension(async (context, url) => {
   await ui.goto(url);
   await expect(ui.locator('canvas.maplibregl-canvas')).toHaveCount(3);
   const game = await context.newPage();
+  const gameErrors = [];
+  recordScriptErrors(game, gameErrors);
   const response = await game.goto('https://www.geo-fs.com/geofs.php?v=3.8',
     { waitUntil: 'domcontentloaded', timeout: 90_000 });
   assert.equal(response.status(), 200, 'Live GeoFS page was unavailable');
   await game.bringToFront();
   try {
-  // GeoFS loads its engine scripts after window.load, then exposes Fly. Wait
-  // for that actual state, including sessions that start without a welcome modal.
-  await game.waitForFunction(() => !!window.geofs?.aircraft?.instance
-    || !!document.querySelector('.geofs-startModal .geofs-fly-button')?.offsetParent,
-  undefined, { timeout: 90_000 });
-  const start = game.locator('.geofs-startModal .geofs-fly-button');
-  if (await start.isVisible()) await start.click();
-  // Do not fill a chat field or invoke any outbound-chat action.
-  await expect.poll(() => counts.updates, { timeout: 60_000 }).toBeGreaterThan(0);
-  await expect.poll(() => counts.maps, { timeout: 60_000 }).toBeGreaterThan(0);
-  await expect.poll(() => counts.basemap, { timeout: 30_000 }).toBeGreaterThan(0);
-  await expect.poll(() => counts.weather, { timeout: 30_000 }).toBeGreaterThan(0);
-  const link = ui.locator('.status-cluster').filter({ hasText: 'GeoFS Link' }).locator('strong');
-  await expect(link).toHaveText('Attached');
-  await ui.bringToFront();
-  await sleep(15_000);
-  await expect(link).toHaveText('Foreground required');
-  assert.equal(errors, 0, 'Live extension raised a page error');
-  console.log('Live read-only integration passed:', JSON.stringify(counts));
+    // GeoFS loads its engine scripts after window.load, then exposes Fly. Wait
+    // for that actual state, including sessions that start without a welcome modal.
+    await game.waitForFunction(() => !!window.geofs?.aircraft?.instance
+      || !!document.querySelector('.geofs-startModal .geofs-fly-button')?.offsetParent,
+    undefined, { timeout: 90_000 });
+    const start = game.locator('.geofs-startModal .geofs-fly-button');
+    if (await start.isVisible()) await start.click();
+    // Do not fill a chat field or invoke any outbound-chat action.
+    await expect.poll(() => counts.updates, { timeout: 60_000 }).toBeGreaterThan(0);
+    await expect.poll(() => counts.maps, { timeout: 60_000 }).toBeGreaterThan(0);
+    await expect.poll(() => counts.basemap, { timeout: 30_000 }).toBeGreaterThan(0);
+    await expect.poll(() => counts.weather, { timeout: 30_000 }).toBeGreaterThan(0);
+    const link = ui.locator('.status-cluster').filter({ hasText: 'GeoFS Link' }).locator('strong');
+    await expect(link).toHaveText('Attached');
+    await ui.bringToFront();
+    await sleep(15_000);
+    await expect(link).toHaveText('Foreground required');
+    assert.equal(errors, 0, 'Live extension raised a page error');
+    console.log('Live read-only integration passed:', JSON.stringify(counts));
+  } catch (error) {
+    await diagnosePlainSession();
+    throw error;
   } finally {
-    const bootstrap = await game.evaluate(() => ({
-      ready: document.readyState, deferredLoaded: !!window.eventdone?.deferredload,
-      aircraftReady: !!window.geofs?.aircraft?.instance,
-      startVisible: !!document.querySelector('.geofs-startModal .geofs-fly-button')?.offsetParent,
-      deferredScripts: document.querySelectorAll('script[data-deferredsrc]').length
+    console.log('Live readiness diagnostics:', JSON.stringify({
+      counts, bootstrap: await bootState(game), bootstrapResponses, gameErrors
     }));
-    console.log('Live readiness diagnostics:', JSON.stringify({ counts, bootstrap, bootstrapResponses }));
   }
 });
