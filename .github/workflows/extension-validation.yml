@@ -1,0 +1,32 @@
+name: Extension validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm audit
+      - run: npm test
+      - run: npm run build
+      - name: Check classic bridge isolation in both host load orders
+        run: node scripts/bridge-scope-smoke.mjs
+      - name: Install current locked Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Validate extension fixtures and live read-only integration
+        run: xvfb-run -a node scripts/security-browser-smoke.mjs
