@@ -102,9 +102,9 @@ await withExtension(async (context, url) => {
     { waitUntil: 'domcontentloaded', timeout: 90_000 });
   assert.equal(response.status(), 200, 'Live GeoFS page was unavailable');
   await game.bringToFront();
-  await game.mouse.click(800, 500);
-  await game.keyboard.press('Escape');
-  await game.keyboard.press('Space');
+  // GeoFS defers its engine/network scripts until the real desktop Fly action.
+  // A coordinate click can miss that action and leave only the landing HTML.
+  await game.locator('.geofs-startModal .geofs-fly-button').click({ timeout: 60_000 });
   // Do not fill a chat field or invoke any outbound-chat action.
   await expect.poll(() => counts.updates, { timeout: 60_000 }).toBeGreaterThan(0);
   await expect.poll(() => counts.maps, { timeout: 60_000 }).toBeGreaterThan(0);
