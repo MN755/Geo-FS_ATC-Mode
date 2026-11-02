@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
 import { expect as baseExpect } from 'playwright/test';
 
@@ -11,6 +12,7 @@ const expect = baseExpect.configure({ timeout: 20_000 });
 
 const bootState = page => page.evaluate(() => ({
   ready: document.readyState, deferredLoaded: !!window.eventdone?.deferredload,
+  visibility: document.visibilityState, focused: document.hasFocus(),
   aircraftReady: !!window.geofs?.aircraft?.instance,
   startVisible: !!document.querySelector('.geofs-startModal .geofs-fly-button')?.offsetParent,
   deferredScripts: document.querySelectorAll('script[data-deferredsrc]').length
@@ -48,21 +50,48 @@ async function diagnosePlainSession() {
   } finally { await browser.close(); }
 }
 
-async function withExtension(run) {
+async function withExtension(run, nativeVisibility = false) {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'geofs-security-'));
-  const context = await chromium.launchPersistentContext(profile, {
-    channel: 'chromium', headless: false, viewport: { width: 1600, height: 1200 },
-    args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`,
-      '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
-  });
+  const args = [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`,
+    '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+  let context, browser, child;
   try {
+    if (nativeVisibility) {
+      // The documented noDefaults CDP mode avoids installing Playwright's focus
+      // override at all. A second CDP session cannot undo its owning client's override.
+      child = spawn(chromium.executablePath(), [...args, '--no-sandbox',
+        '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check',
+        '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
+        `--user-data-dir=${profile}`, '--window-size=1600,1200', 'about:blank'], { stdio: 'ignore' });
+      let launchError, port;
+      child.on('error', error => { launchError = error; });
+      await expect.poll(async () => {
+        if (launchError) throw launchError;
+        try { port = +(await fs.readFile(path.join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; }
+        catch { return false; }
+        return Number.isInteger(port) && port > 0;
+      }).toBe(true);
+      browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { noDefaults: true });
+      context = browser.contexts()[0];
+    } else {
+      context = await chromium.launchPersistentContext(profile, {
+        channel: 'chromium', headless: false, viewport: { width: 1600, height: 1200 }, args
+      });
+    }
     const worker = context.serviceWorkers()[0]
       || await context.waitForEvent('serviceworker', { timeout: 30_000 });
     const id = new URL(worker.url()).host;
     await run(context, `chrome-extension://${id}/workspace.html`, worker);
   } finally {
-    await context.close();
-    await fs.rm(profile, { recursive: true, force: true });
+    if (browser) await browser.close().catch(() => {});
+    else if (context) await context.close().catch(() => {});
+    if (child && child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise(resolve => child.once('exit', resolve));
+      child.kill('SIGTERM');
+      await Promise.race([exited, sleep(5000)]);
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }
+    await fs.rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
@@ -139,6 +168,7 @@ await withExtension(async (context, url, worker) => {
   const ui = await context.newPage();
   ui.on('pageerror', () => errors++);
   await ui.goto(url);
+  await ui.bringToFront();
   await expect(ui.locator('canvas.maplibregl-canvas')).toHaveCount(3);
   const game = await context.newPage();
   const gameErrors = [];
@@ -165,10 +195,6 @@ await withExtension(async (context, url, worker) => {
     const ops = ui.locator('.status-cluster').filter({ hasText: 'Ops' });
     await expect(ops).toContainText(/U:Y\s+M:Y/);
     await expect(ops).toContainText('B:Y');
-    // Playwright enables focus emulation by default. Restore native visibility
-    // for this real tab-lifecycle check; do not synthesize visibility events.
-    const gameSession = await context.newCDPSession(game);
-    await gameSession.send('Emulation.setFocusEmulationEnabled', { enabled: false });
     // Focusing a different window does not necessarily hide the game. Move its
     // real tab to a normal window and activate a blank sibling tab instead.
     await worker.evaluate(async () => {
@@ -195,4 +221,4 @@ await withExtension(async (context, url, worker) => {
       counts, bootstrap: await bootState(game), bootstrapResponses, gameErrors
     }));
   }
-});
+}, true);
