@@ -84,9 +84,13 @@ await withExtension(async (context, url) => {
   // Count status results only. Never collect live response bodies, chat, aircraft,
   // session identifiers, URLs with query strings, browser profiles or screenshots.
   const counts = { updates: 0, maps: 0, basemap: 0, weather: 0 };
+  const bootstrapResponses = {};
+  const bootstrapPaths = new Set(['/js/commonJS.js', '/js/geofs.js', '/js/Cesium/build/Cesium.js']);
   let errors = 0;
   context.on('response', response => {
     const u = new URL(response.url());
+    if (u.hostname === 'www.geo-fs.com' && bootstrapPaths.has(u.pathname))
+      bootstrapResponses[u.pathname] = response.status();
     if (response.status() !== 200) return;
     if (u.hostname.endsWith('.geo-fs.com') && u.pathname === '/update') counts.updates++;
     if (u.hostname.endsWith('.geo-fs.com') && u.pathname === '/map') counts.maps++;
@@ -102,9 +106,14 @@ await withExtension(async (context, url) => {
     { waitUntil: 'domcontentloaded', timeout: 90_000 });
   assert.equal(response.status(), 200, 'Live GeoFS page was unavailable');
   await game.bringToFront();
-  // GeoFS defers its engine/network scripts until the real desktop Fly action.
-  // A coordinate click can miss that action and leave only the landing HTML.
-  await game.locator('.geofs-startModal .geofs-fly-button').click({ timeout: 60_000 });
+  try {
+  // GeoFS loads its engine scripts after window.load, then exposes Fly. Wait
+  // for that actual state, including sessions that start without a welcome modal.
+  await game.waitForFunction(() => !!window.geofs?.aircraft?.instance
+    || !!document.querySelector('.geofs-startModal .geofs-fly-button')?.offsetParent,
+  undefined, { timeout: 90_000 });
+  const start = game.locator('.geofs-startModal .geofs-fly-button');
+  if (await start.isVisible()) await start.click();
   // Do not fill a chat field or invoke any outbound-chat action.
   await expect.poll(() => counts.updates, { timeout: 60_000 }).toBeGreaterThan(0);
   await expect.poll(() => counts.maps, { timeout: 60_000 }).toBeGreaterThan(0);
@@ -117,4 +126,13 @@ await withExtension(async (context, url) => {
   await expect(link).toHaveText('Foreground required');
   assert.equal(errors, 0, 'Live extension raised a page error');
   console.log('Live read-only integration passed:', JSON.stringify(counts));
+  } finally {
+    const bootstrap = await game.evaluate(() => ({
+      ready: document.readyState, deferredLoaded: !!window.eventdone?.deferredload,
+      aircraftReady: !!window.geofs?.aircraft?.instance,
+      startVisible: !!document.querySelector('.geofs-startModal .geofs-fly-button')?.offsetParent,
+      deferredScripts: document.querySelectorAll('script[data-deferredsrc]').length
+    }));
+    console.log('Live readiness diagnostics:', JSON.stringify({ counts, bootstrap, bootstrapResponses }));
+  }
 });
