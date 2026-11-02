@@ -78,8 +78,21 @@ async function withExtension(run, nativeVisibility = false) {
         channel: 'chromium', headless: false, viewport: { width: 1600, height: 1200 }, args
       });
     }
-    const worker = context.serviceWorkers()[0]
-      || await context.waitForEvent('serviceworker', { timeout: 30_000 });
+    // Native Chrome also has component-extension workers. Select our manifest,
+    // rather than treating the first background worker as this extension.
+    const manifestName = JSON.parse(await fs.readFile(path.join(dist, 'manifest.json'), 'utf8')).name;
+    let worker;
+    await expect.poll(async () => {
+      for (const candidate of context.serviceWorkers()) {
+        try {
+          if (await candidate.evaluate(name => chrome.runtime.getManifest().name === name, manifestName)) {
+            worker = candidate;
+            return true;
+          }
+        } catch { /* A component worker can stop while Chrome is starting. */ }
+      }
+      return false;
+    }, { timeout: 30_000 }).toBe(true);
     const id = new URL(worker.url()).host;
     await run(context, `chrome-extension://${id}/workspace.html`, worker);
   } finally {
