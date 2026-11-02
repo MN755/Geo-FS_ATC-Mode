@@ -168,7 +168,10 @@ await withExtension(async (context, url) => {
     assert.equal(errors, 0, 'Live extension raised a page error');
     console.log('Live read-only integration passed:', JSON.stringify(counts));
   } catch (error) {
-    await diagnosePlainSession();
+    try { await diagnosePlainSession(); }
+    catch (diagnosticError) {
+      console.log('Plain browser diagnostic unavailable:', diagnosticError.name);
+    }
     throw error;
   } finally {
     console.log('Live readiness diagnostics:', JSON.stringify({
