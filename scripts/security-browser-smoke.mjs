@@ -162,6 +162,9 @@ await withExtension(async (context, url) => {
     await expect.poll(() => counts.weather, { timeout: 30_000 }).toBeGreaterThan(0);
     const link = ui.locator('.status-cluster').filter({ hasText: 'GeoFS Link' }).locator('strong');
     await expect(link).toHaveText('Attached');
+    const ops = ui.locator('.status-cluster').filter({ hasText: 'Ops' });
+    await expect(ops).toContainText(/U:Y\s+M:Y/);
+    await expect(ops).toContainText('B:Y');
     await ui.bringToFront();
     await sleep(15_000);
     await expect(link).toHaveText('Foreground required');
