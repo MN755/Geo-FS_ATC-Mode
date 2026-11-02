@@ -165,6 +165,10 @@ await withExtension(async (context, url, worker) => {
     const ops = ui.locator('.status-cluster').filter({ hasText: 'Ops' });
     await expect(ops).toContainText(/U:Y\s+M:Y/);
     await expect(ops).toContainText('B:Y');
+    // Playwright enables focus emulation by default. Restore native visibility
+    // for this real tab-lifecycle check; do not synthesize visibility events.
+    const gameSession = await context.newCDPSession(game);
+    await gameSession.send('Emulation.setFocusEmulationEnabled', { enabled: false });
     // Focusing a different window does not necessarily hide the game. Move its
     // real tab to a normal window and activate a blank sibling tab instead.
     await worker.evaluate(async () => {
@@ -175,7 +179,7 @@ await withExtension(async (context, url, worker) => {
       if (window.id == null) throw new Error('GeoFS test window missing');
       await chrome.tabs.create({ windowId: window.id, url: 'about:blank', active: true });
     });
-    await game.waitForFunction(() => document.visibilityState === 'hidden');
+    await expect.poll(() => game.evaluate(() => document.visibilityState)).toBe('hidden');
     await ui.bringToFront();
     await expect(link).toHaveText('Foreground required');
     assert.equal(errors, 0, 'Live extension raised a page error');
