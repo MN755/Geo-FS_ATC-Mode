@@ -59,7 +59,7 @@ async function withExtension(run) {
     const worker = context.serviceWorkers()[0]
       || await context.waitForEvent('serviceworker', { timeout: 30_000 });
     const id = new URL(worker.url()).host;
-    await run(context, `chrome-extension://${id}/workspace.html`);
+    await run(context, `chrome-extension://${id}/workspace.html`, worker);
   } finally {
     await context.close();
     await fs.rm(profile, { recursive: true, force: true });
@@ -119,7 +119,7 @@ await withExtension(async (context, url) => {
   console.log('Extension fixtures passed: three maps, overlay toggling/image, sanitized attribution, PDF pixels/search/cache.');
 });
 
-await withExtension(async (context, url) => {
+await withExtension(async (context, url, worker) => {
   // Count status results only. Never collect live response bodies, chat, aircraft,
   // session identifiers, URLs with query strings, browser profiles or screenshots.
   const counts = { updates: 0, maps: 0, basemap: 0, weather: 0 };
@@ -165,8 +165,18 @@ await withExtension(async (context, url) => {
     const ops = ui.locator('.status-cluster').filter({ hasText: 'Ops' });
     await expect(ops).toContainText(/U:Y\s+M:Y/);
     await expect(ops).toContainText('B:Y');
+    // Focusing a different window does not necessarily hide the game. Move its
+    // real tab to a normal window and activate a blank sibling tab instead.
+    await worker.evaluate(async () => {
+      const tabs = await chrome.tabs.query({ url: 'https://www.geo-fs.com/*' });
+      const gameTab = tabs.find(tab => new URL(tab.url).pathname === '/geofs.php');
+      if (gameTab?.id == null) throw new Error('Live GeoFS tab missing');
+      const window = await chrome.windows.create({ tabId: gameTab.id, type: 'normal', focused: true });
+      if (window.id == null) throw new Error('GeoFS test window missing');
+      await chrome.tabs.create({ windowId: window.id, url: 'about:blank', active: true });
+    });
+    await game.waitForFunction(() => document.visibilityState === 'hidden');
     await ui.bringToFront();
-    await sleep(15_000);
     await expect(link).toHaveText('Foreground required');
     assert.equal(errors, 0, 'Live extension raised a page error');
     console.log('Live read-only integration passed:', JSON.stringify(counts));
